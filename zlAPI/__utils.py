@@ -46,7 +46,7 @@ def verifyEndpointDynamicKey(routes, request):
             if endpointArray == requestEndpointArray:
                 del request.paramsKey
                 del request.standardKey
-                return True, view.function
-        return False, None
+                return True, view.function, view.retrieve.copy() if view.retrieve != None else None
+        return False, None, None
     except KeyError:
-        return False, None
+        return False, None, None

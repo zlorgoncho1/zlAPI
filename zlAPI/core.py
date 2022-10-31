@@ -33,10 +33,10 @@ class zlServer:
             zll.log("Server successfully started !", "ServerCore")
             asyncio.run(self.__runserver())
         except KeyboardInterrupt:
-            zll.warn("KeyboardInterrupt")
-            zll.debug(
-                f"Number of requests handled: [{self.requestsHandled}] in [{self.requestsHandledTime}]")
-            zll.warn("Server has stopped succesfully !")
+            zll.warn("KeyboardInterrupt", "ServerCore")
+            zll.warn("Server has stopped succesfully !", "ServerCore")
+            zll.log(
+                f"Total number of requests handled: [{self.requestsHandled}] in [{self.requestsHandledTime:.3f} ms]", "ServerCore")
             quit()
 
     async def __runserver(self):
@@ -88,16 +88,14 @@ class zlServer:
             executionTime = (perf_counter() - executionTime)*1000
             zll.plog(
                 f"{clientAddr} ==> {request.method} - {{ {request.endpoint} }}", executionTime, "RequestHandler", str(statusCode)[0], statusMessage)
-
+            self.requestsHandled += 1
+            self.requestsHandledTime += executionTime
         except Exception as error:
             InternalServerErrorException.raise__(
                 clientSocket, request.protocol)
             zll.error(error)
             raise error
-        finally:
-            self.requestsHandled += 1
-            self.requestsHandledTime += executionTime
-            clientSocket.close()
+        clientSocket.close()
 
     def _recv(self, clientSocket):
         clientSocket.settimeout(self.__timeout)
@@ -108,44 +106,58 @@ class zlServer:
                 return False, ''
 
     def checkRequestAndExec(self, request, clientSocket):
-        isValid, function = (self.checkEndpoint(request))
+        isValid, function, retrieve = (self.checkEndpoint(request))
         if (not isValid):
             self.response(clientSocket, request.protocol,
                           HttpStatus.BAD_REQUEST.code, HttpStatus.BAD_REQUEST.message)
             return HttpStatus.BAD_REQUEST.code, HttpStatus.BAD_REQUEST.message
-        return self.execController(clientSocket, request, function)
+        if (retrieve == None):
+            return self.execView(clientSocket, request, function)
+        return self.retrieveAndExecView(clientSocket, request, function, retrieve)
 
-    def execController(self, clientSocket, request, function):
-        data = function(request)
+    def execView(self, clientSocket, request, function, functionParams=None):
+        data = function(request) if functionParams == None else function(
+            **functionParams)
         statusCode, statusMessage = HttpStatus.OK.code,  HttpStatus.OK.message
         self.response(clientSocket, request.protocol,
                       statusCode, statusMessage, data)
         return statusCode, statusMessage
 
-    # To implement Next
-    def checkDataTypeAndSetHeader(self):
+    def retrieveAndExecView(self, clientSocket, request, function, retrieve):
+        functionParams = {}
+        for key in retrieve.keys():
+            if key == 'params' and type(retrieve['params']).__name__ == 'dict':
+                params = retrieve['params']
+                for key in params.keys():
+                    functionParams[params[key]] = request.params[key]
+                continue
+            functionParams[retrieve[key]] = getattr(request, key)
+        zll.debug(functionParams)
+        return self.execView(clientSocket, request, function, functionParams)
+
+    def checkDataTypeAndSetHeader(self):  # To implement Next
         pass
 
     def extractData(self, data):
         [head, body] = data.decode('utf-8').replace(
             '\r', '').split('\n\n', 1)
-        method, endpoint, protocol, headers, queries = self.extractHeadData(
+        method, endpoint, protocol, headers, query = self.extractHeadData(
             head)
         standardKey = method + endpoint
         paramsKey = method + str(len(endpoint.split('/')[1:]))
-        return Request(method, endpoint, protocol, headers, queries, body, standardKey, paramsKey)
+        return Request(method, endpoint, protocol, headers, query, body, standardKey, paramsKey)
 
     def extractHeadData(self, head):
         head = head.split('\n')
         method, _endpoint, protocol = head[0].split(' ')
         endpoint = _endpoint.split('?', 1)[0]
         try:
-            queries = _endpoint.split('?', 1)[1].split('&')
+            query = _endpoint.split('?', 1)[1].split('&')
         except IndexError:
-            queries = []
+            query = []
         headers = dict(unFormattedHeader.split(': ', 1)
                        for unFormattedHeader in head[1:])
-        return method, endpoint, protocol, headers, queries
+        return method, endpoint, protocol, headers, query
 
     # Response Traitement
     def response(self, clientSocket, protocol, statusCode, statusMessage, content=""):
@@ -157,9 +169,10 @@ class zlServer:
     # Check
     def checkEndpoint(self, request):
         if (request.standardKey in self.standardRoutes):
-            return True, self.standardRoutes[request.standardKey].function
-        isValid, function = verifyEndpointDynamicKey(
+            view = self.standardRoutes[request.standardKey]
+            return True, view.function, view.retrieve
+        isValid, function, retrieve = verifyEndpointDynamicKey(
             self.paramsRoutes, request)
         if isValid:
-            return True, function
-        return False, None
+            return True, function, retrieve
+        return False, None, None

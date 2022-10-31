@@ -56,7 +56,7 @@ class zlLogger:
 
 # Route
 class View__:
-    def __init__(self, method, endpoint, function):
+    def __init__(self, method, endpoint, function, retrieve):
         self.method = method
         self.endpoint = endpoint
         self.function = function
@@ -64,6 +64,7 @@ class View__:
         self.params = []
         self.endpointArray = []
         self.hasParams = False
+        self.retrieve = retrieve
 
     def generateKey(self):
         self.endpointArray = self.endpoint.split('/')[1:]
@@ -88,12 +89,12 @@ class Controller__:
 
 # Request
 class Request:
-    def __init__(self, method, endpoint, protocol, headers, queries, body, standardKey, paramsKey):
+    def __init__(self, method, endpoint, protocol, headers, query, body, standardKey, paramsKey):
         self.method = method
         self.endpoint = endpoint
         self.protocol = protocol
         self.headers = headers
-        self.queries = queries
+        self.query = query
         self.body = body
         self.standardKey = standardKey
         self.paramsKey = paramsKey
@@ -124,10 +125,10 @@ def Controller(endpoint: str = ''):
 
 
 # ---------> View
-def View(method, endpoint=""):
+def View(method, endpoint="", retrieve=None):
     def viewWrapper(func):
         uri = '/' + \
             endpoint if (
                 endpoint != "" and not endpoint.startswith('/')) else endpoint
-        return View__(method, uri, func)
+        return View__(method, uri, func, retrieve)
     return viewWrapper
